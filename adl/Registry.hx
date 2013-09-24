@@ -18,4 +18,15 @@ class Registry {
         return this;
     }
 
+    public function loop (name:String, data:Dynamic):Engine {
+        var ctx = new Context(data);
+        var engine = new Engine(animations.get(name));
+
+        engine.loop(ctx);
+        return engine;
+    }
+
+    public function update (delta:Int) {
+    }
+
 }

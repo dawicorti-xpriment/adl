@@ -35,5 +35,7 @@ class Animation implements Listenable {
         events.trigger(name, data);
     }
 
+    public function step(ctx:Context, elapsed:Int) {}
+
 
 }

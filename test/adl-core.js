@@ -28,9 +28,12 @@ Reflect.__name__ = true;
 Reflect.hasField = function(o,field) {
 	return Object.prototype.hasOwnProperty.call(o,field);
 }
+Reflect.setField = function(o,field,value) {
+	o[field] = value;
+}
 Reflect.getProperty = function(o,field) {
 	var tmp;
-	return o == null?null:o.__properties__ && (tmp = o.__properties__["get_" + field])?o[tmp]():o[field];
+	if(o == null) return null; else if(o.__properties__ && (tmp = o.__properties__["get_" + field])) return o[tmp](); else return o[field];
 }
 Reflect.fields = function(o) {
 	var a = [];
@@ -68,6 +71,11 @@ StringBuf.prototype = {
 	}
 	,__class__: StringBuf
 }
+var StringTools = function() { }
+StringTools.__name__ = true;
+StringTools.fastCodeAt = function(s,index) {
+	return s.charCodeAt(index);
+}
 var adl = {}
 adl.ADL = function() { }
 $hxExpose(adl.ADL, "adl.ADL");
@@ -76,6 +84,15 @@ adl.ADL.read = function(data) {
 	var description = haxe.Json.parse(data);
 	var reg = new adl.Registry();
 	return reg.read(description);
+}
+adl.ADL.update = function(delta) {
+	var _g = 0;
+	var _g1 = adl.ADL.registries;
+	while(_g < _g1.length) {
+		var reg = _g1[_g];
+		++_g;
+		reg.update(delta);
+	}
 }
 adl.ADL.main = function() {
 }
@@ -92,14 +109,17 @@ adl.Animation = function() {
 adl.Animation.__name__ = true;
 adl.Animation.__interfaces__ = [adl.Listenable];
 adl.Animation.prototype = {
-	trigger: function(name,data) {
+	step: function(ctx,elapsed) {
+	}
+	,trigger: function(name,data) {
 		this.events.trigger(name,data);
 	}
 	,on: function(name,callback) {
 		this.events.on(name,callback);
 	}
 	,read: function(description) {
-		var _g = 0, _g1 = Reflect.fields(description);
+		var _g = 0;
+		var _g1 = Reflect.fields(description);
 		while(_g < _g1.length) {
 			var name = _g1[_g];
 			++_g;
@@ -149,8 +169,8 @@ adl.AnimationFactory.create = function(description) {
 	if(js.Boot.__instanceof(description,Array)) animation = adl.AnimationFactory.readArray(description); else if(Reflect.isObject(description)) animation = adl.AnimationFactory.readObject(description); else throw "Unknown animation type";
 	return animation;
 }
-adl.Context = function() {
-	this.data = { };
+adl.Context = function(data) {
+	this.data = data;
 };
 adl.Context.__name__ = true;
 adl.Context.prototype = {
@@ -160,6 +180,29 @@ adl.Context.prototype = {
 		return result;
 	}
 	,__class__: adl.Context
+}
+adl.Engine = function(animation) {
+	this.animation = animation;
+	this.events = new adl.Events();
+	this.elapsed = 0;
+};
+adl.Engine.__name__ = true;
+adl.Engine.__interfaces__ = [adl.Listenable];
+adl.Engine.prototype = {
+	trigger: function(name,data) {
+		this.events.trigger(name,data);
+	}
+	,on: function(name,callback) {
+		this.events.on(name,callback);
+	}
+	,step: function(delta) {
+		this.elapsed += delta;
+		this.animation.step(this.ctx,this.elapsed);
+	}
+	,loop: function(ctx) {
+		this.ctx = ctx;
+	}
+	,__class__: adl.Engine
 }
 adl.Events = function() {
 	this.routes = new haxe.ds.StringMap();
@@ -216,14 +259,10 @@ adl.Parallel.prototype = $extend(adl.Sequence.prototype,{
 	__class__: adl.Parallel
 });
 adl.Parameter = function() {
-	this.ctx = new adl.Context();
 };
 adl.Parameter.__name__ = true;
 adl.Parameter.prototype = {
-	getValue: function(name) {
-		return this.ctx.getValue(name);
-	}
-	,set: function(value) {
+	set: function(value) {
 		return this;
 	}
 	,__class__: adl.Parameter
@@ -233,13 +272,23 @@ adl.Registry = function() {
 };
 adl.Registry.__name__ = true;
 adl.Registry.prototype = {
-	read: function(description) {
-		var _g = 0, _g1 = Reflect.fields(description);
+	update: function(delta) {
+	}
+	,loop: function(name,data) {
+		var ctx = new adl.Context(data);
+		var engine = new adl.Engine(this.animations.get(name));
+		engine.loop(ctx);
+		return engine;
+	}
+	,read: function(description) {
+		var _g = 0;
+		var _g1 = Reflect.fields(description);
 		while(_g < _g1.length) {
 			var field = _g1[_g];
 			++_g;
 			var animationDescription = Reflect.getProperty(description,field);
-			this.animations.set(field,adl.AnimationFactory.create(animationDescription));
+			var value = adl.AnimationFactory.create(animationDescription);
+			this.animations.set(field,value);
 		}
 		return this;
 	}
@@ -267,10 +316,15 @@ haxe.Json.parse = function(text) {
 haxe.Json.prototype = {
 	parseNumber: function(c) {
 		var start = this.pos - 1;
-		var minus = c == 45, digit = !minus, zero = c == 48;
-		var point = false, e = false, pm = false, end = false;
+		var minus = c == 45;
+		var digit = !minus;
+		var zero = c == 48;
+		var point = false;
+		var e = false;
+		var pm = false;
+		var end = false;
 		while(true) {
-			c = this.str.charCodeAt(this.pos++);
+			c = StringTools.fastCodeAt(this.str,this.pos++);
 			switch(c) {
 			case 48:
 				if(zero && !point) this.invalidNumber(start);
@@ -310,7 +364,7 @@ haxe.Json.prototype = {
 		}
 		var f = Std.parseFloat(HxOverrides.substr(this.str,start,this.pos - start));
 		var i = f | 0;
-		return i == f?i:f;
+		if(i == f) return i; else return f;
 	}
 	,invalidNumber: function(start) {
 		throw "Invalid number at position " + start + ": " + HxOverrides.substr(this.str,start,this.pos - start);
@@ -319,11 +373,11 @@ haxe.Json.prototype = {
 		var start = this.pos;
 		var buf = new StringBuf();
 		while(true) {
-			var c = this.str.charCodeAt(this.pos++);
+			var c = StringTools.fastCodeAt(this.str,this.pos++);
 			if(c == 34) break;
 			if(c == 92) {
 				buf.addSub(this.str,start,this.pos - start - 1);
-				c = this.str.charCodeAt(this.pos++);
+				c = StringTools.fastCodeAt(this.str,this.pos++);
 				switch(c) {
 				case 114:
 					buf.b += "\r";
@@ -359,14 +413,16 @@ haxe.Json.prototype = {
 	}
 	,parseRec: function() {
 		while(true) {
-			var c = this.str.charCodeAt(this.pos++);
+			var c = StringTools.fastCodeAt(this.str,this.pos++);
 			switch(c) {
 			case 32:case 13:case 10:case 9:
 				break;
 			case 123:
-				var obj = { }, field = null, comma = null;
+				var obj = { };
+				var field = null;
+				var comma = null;
 				while(true) {
-					var c1 = this.str.charCodeAt(this.pos++);
+					var c1 = StringTools.fastCodeAt(this.str,this.pos++);
 					switch(c1) {
 					case 32:case 13:case 10:case 9:
 						break;
@@ -375,7 +431,7 @@ haxe.Json.prototype = {
 						return obj;
 					case 58:
 						if(field == null) this.invalidChar();
-						obj[field] = this.parseRec();
+						Reflect.setField(obj,field,this.parseRec());
 						field = null;
 						comma = true;
 						break;
@@ -392,9 +448,10 @@ haxe.Json.prototype = {
 				}
 				break;
 			case 91:
-				var arr = [], comma = null;
+				var arr = [];
+				var comma = null;
 				while(true) {
-					var c1 = this.str.charCodeAt(this.pos++);
+					var c1 = StringTools.fastCodeAt(this.str,this.pos++);
 					switch(c1) {
 					case 32:case 13:case 10:case 9:
 						break;
@@ -414,21 +471,21 @@ haxe.Json.prototype = {
 				break;
 			case 116:
 				var save = this.pos;
-				if(this.str.charCodeAt(this.pos++) != 114 || this.str.charCodeAt(this.pos++) != 117 || this.str.charCodeAt(this.pos++) != 101) {
+				if(StringTools.fastCodeAt(this.str,this.pos++) != 114 || StringTools.fastCodeAt(this.str,this.pos++) != 117 || StringTools.fastCodeAt(this.str,this.pos++) != 101) {
 					this.pos = save;
 					this.invalidChar();
 				}
 				return true;
 			case 102:
 				var save = this.pos;
-				if(this.str.charCodeAt(this.pos++) != 97 || this.str.charCodeAt(this.pos++) != 108 || this.str.charCodeAt(this.pos++) != 115 || this.str.charCodeAt(this.pos++) != 101) {
+				if(StringTools.fastCodeAt(this.str,this.pos++) != 97 || StringTools.fastCodeAt(this.str,this.pos++) != 108 || StringTools.fastCodeAt(this.str,this.pos++) != 115 || StringTools.fastCodeAt(this.str,this.pos++) != 101) {
 					this.pos = save;
 					this.invalidChar();
 				}
 				return false;
 			case 110:
 				var save = this.pos;
-				if(this.str.charCodeAt(this.pos++) != 117 || this.str.charCodeAt(this.pos++) != 108 || this.str.charCodeAt(this.pos++) != 108) {
+				if(StringTools.fastCodeAt(this.str,this.pos++) != 117 || StringTools.fastCodeAt(this.str,this.pos++) != 108 || StringTools.fastCodeAt(this.str,this.pos++) != 108) {
 					this.pos = save;
 					this.invalidChar();
 				}
@@ -476,7 +533,8 @@ js.Boot.__interfLoop = function(cc,cl) {
 	if(cc == cl) return true;
 	var intf = cc.__interfaces__;
 	if(intf != null) {
-		var _g1 = 0, _g = intf.length;
+		var _g1 = 0;
+		var _g = intf.length;
 		while(_g1 < _g) {
 			var i = _g1++;
 			var i1 = intf[i];
@@ -528,6 +586,7 @@ Bool.__ename__ = ["Bool"];
 var Class = { __name__ : ["Class"]};
 var Enum = { };
 if(typeof(JSON) != "undefined") haxe.Json = JSON;
+adl.ADL.registries = new Array();
 adl.ADL.version = "0.0.1";
 adl.ADL.main();
 function $hxExpose(src, path) {

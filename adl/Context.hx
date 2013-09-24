@@ -4,8 +4,8 @@ class Context {
 
     private var data:Dynamic;
 
-    public function new() {
-        data = {};
+    public function new(data:Dynamic) {
+        this.data = data;
     }
 
     public function getValue(name:String, defaultV:Dynamic=null):Dynamic {
