@@ -2,7 +2,7 @@ package adl;
 
 import haxe.Json;
 
-class ADL  {
+@:expose class ADL  {
 
     static public var version:String = '0.0.1';
 
@@ -13,12 +13,6 @@ class ADL  {
         return reg.read(description);
     }
 
-    static public function main () {
-        ADL.read(Json.stringify({
-            move: {type: 'linear'},
-            square: [{type: 'linear'}, {type: 'linear'}]
-
-        }));
-    }
+    static public function main () {}
 
 }
